@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trình Xem Video Từ Vựng (Tự động cập nhật)</title>
+    <title>Trình Xem Video Từ Vựng</title>
     <style>
         * {
             box-sizing: border-box;
@@ -155,7 +155,7 @@
     <!-- Thanh công cụ -->
     <div class="toolbar">
         <input type="text" id="searchInput" class="search-box" placeholder="🔍 Tìm kiếm từ vựng..." disabled>
-        <span class="status-text" id="statusText">Đang đồng bộ dữ liệu từ Google Drive...</span>
+        <span class="status-text" id="statusText">Đang tải danh sách video...</span>
     </div>
 
     <!-- Nội dung chính -->
@@ -168,7 +168,7 @@
         <!-- Cột phải: Video -->
         <div class="preview-pane">
             <div class="placeholder-msg" id="placeholderMsg">
-                Đang kết nối tới thư mục Google Drive...
+                Đang tải dữ liệu từ GitHub...
             </div>
 
             <div class="video-wrapper" id="videoWrapper">
@@ -195,39 +195,46 @@
         const currentTitle = document.getElementById('currentTitle');
         const controlsHint = document.getElementById('controlsHint');
 
-        // Tự động tải danh sách từ Google Drive khi mở trang web
+        // Tự động tải danh sách video từ thư mục mp4 trên GitHub
         async function loadVideoData() {
-            // DÁN LINK GOOGLE APPS SCRIPT WEB APP CỦA BẠN VÀO DƯỚI ĐÂY:
-            const apiUrl = "https://script.google.com/macros/s/AKfycbzTs4bdBxcAlJOtLF8gETYIgTY4t3Hkgp2UaHdilzbtE1IBLTXUzD9pJkgphevO3Msv/exec"; 
-
-            if (apiUrl.includes("URL_WEB_APP_CUA_BAN")) {
-                statusText.textContent = "Chưa cấu hình API Link!";
-                placeholderMsg.innerHTML = "Vui lòng dán link Web App của Google Apps Script vào mã nguồn trang web.";
-                return;
-            }
-
             try {
-                const response = await fetch(apiUrl);
-                const data = await response.json();
+                const owner = "NICEDAYLAM";
+                const repo = "tu_dien_NNKH";
+                const folderPath = "mp4";
+                
+                const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${folderPath}`);
+                const files = await response.json();
 
-                if (!Array.isArray(data) || data.length === 0) {
+                if (!Array.isArray(files)) {
+                    throw new Error("Không thể đọc thư mục mp4");
+                }
+
+                // Lọc file .mp4 và sắp xếp tên tự nhiên
+                videoList = files
+                    .filter(file => file.name.toLowerCase().endsWith('.mp4'))
+                    .map(file => ({
+                        name: file.name.replace(/\.mp4$/i, ''),
+                        url: file.download_url
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
+
+                filteredFiles = [...videoList];
+
+                if (videoList.length === 0) {
                     statusText.textContent = "Không tìm thấy video nào!";
+                    placeholderMsg.innerHTML = "Thư mục mp4 trên GitHub chưa có video.";
                     return;
                 }
 
-                // Sắp xếp danh sách tự nhiên (1, 2, 10, a, b, buồn...)
-                videoList = data.sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
-                filteredFiles = [...videoList];
-
                 searchInput.disabled = false;
-                statusText.textContent = `${videoList.length} video từ Google Drive`;
+                statusText.textContent = `${videoList.length} video từ GitHub`;
                 placeholderMsg.innerHTML = 'Chọn một từ ở danh sách bên trái để xem video.';
                 renderList();
 
             } catch (error) {
                 console.error(error);
                 statusText.textContent = "Lỗi kết nối dữ liệu!";
-                placeholderMsg.innerHTML = "Không thể tải danh sách từ Google Drive. Vui lòng kiểm tra lại quyền truy cập Web App.";
+                placeholderMsg.innerHTML = "Không thể tải danh sách video từ GitHub. Vui lòng kiểm tra lại.";
             }
         }
 
@@ -268,7 +275,7 @@
             currentIndex = index;
             const item = filteredFiles[index];
 
-            videoPlayer.src = `https://drive.google.com/uc?export=download&id=${item.id}`;
+            videoPlayer.src = item.url;
             videoPlayer.play();
 
             placeholderMsg.style.display = 'none';
