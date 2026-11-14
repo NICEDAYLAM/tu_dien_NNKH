@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình Xem Video Từ Vựng (Tự động cập nhật)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #f3f3f3;
+            overflow: hidden;
+        }
+
+        /* Thanh công cụ */
+        .toolbar {
+            background-color: #ffffff;
+            padding: 12px 20px;
+            border-bottom: 1px solid #d9d9d9;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .search-box {
+            padding: 8px 12px;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            width: 350px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .search-box:focus {
+            border-color: #0067c0;
+        }
+
+        .status-text {
+            color: #555;
+            font-size: 13px;
+            margin-left: auto;
+        }
+
+        /* Khu vực chia 2 cột */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Cột trái: Danh sách */
+        .list-pane {
+            flex: 6.5;
+            background-color: #ffffff;
+            border-right: 1px solid #d9d9d9;
+            padding: 12px;
+            overflow-x: auto;
+            overflow-y: auto;
+        }
+
+        .file-grid {
+            display: grid;
+            grid-auto-flow: column;
+            grid-template-rows: repeat(auto-fill, 28px);
+            grid-auto-columns: 165px;
+            gap: 2px 10px;
+            height: 100%;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 8px;
+            font-size: 13px;
+            color: #1a1a1a;
+            cursor: pointer;
+            border-radius: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            user-select: none;
+        }
+
+        .file-item:hover {
+            background-color: #e5f3ff;
+        }
+
+        .file-item.active {
+            background-color: #cce8ff;
+            outline: 1px solid #99d1ff;
+            font-weight: 500;
+        }
+
+        /* Cột phải: Phát video */
+        .preview-pane {
+            flex: 3.5;
+            background-color: #fafafa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .video-wrapper {
+            width: 100%;
+            max-width: 480px;
+            background-color: #000;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+            max-height: 70vh;
+        }
+
+        .current-title {
+            margin-top: 15px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #0067c0;
+            text-align: center;
+        }
+
+        .placeholder-msg {
+            color: #888;
+            text-align: center;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .controls-hint {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Thanh công cụ -->
+    <div class="toolbar">
+        <input type="text" id="searchInput" class="search-box" placeholder="🔍 Tìm kiếm từ vựng..." disabled>
+        <span class="status-text" id="statusText">Đang đồng bộ dữ liệu từ Google Drive...</span>
+    </div>
+
+    <!-- Nội dung chính -->
+    <div class="main-container">
+        <!-- Cột trái: Danh sách -->
+        <div class="list-pane">
+            <div class="file-grid" id="fileGrid"></div>
+        </div>
+
+        <!-- Cột phải: Video -->
+        <div class="preview-pane">
+            <div class="placeholder-msg" id="placeholderMsg">
+                Đang kết nối tới thư mục Google Drive...
+            </div>
+
+            <div class="video-wrapper" id="videoWrapper">
+                <video id="videoPlayer" controls autoplay loop></video>
+            </div>
+            <div class="current-title" id="currentTitle"></div>
+            <div class="controls-hint" id="controlsHint" style="display: none;">
+                Mẹo: Dùng phím mũi tên <b>↑ / ↓</b> để chuyển nhanh giữa các từ
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let videoList = [];
+        let filteredFiles = [];
+        let currentIndex = -1;
+
+        const searchInput = document.getElementById('searchInput');
+        const fileGrid = document.getElementById('fileGrid');
+        const statusText = document.getElementById('statusText');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const videoWrapper = document.getElementById('videoWrapper');
+        const placeholderMsg = document.getElementById('placeholderMsg');
+        const currentTitle = document.getElementById('currentTitle');
+        const controlsHint = document.getElementById('controlsHint');
+
+        // Tự động tải danh sách từ Google Drive khi mở trang web
+        async function loadVideoData() {
+            // DÁN LINK GOOGLE APPS SCRIPT WEB APP CỦA BẠN VÀO DƯỚI ĐÂY:
+            const apiUrl = "https://script.google.com/macros/s/AKfycbyZwdYyna6cNrsG_VmQ7K3wo16uXHP4j5arwqhEP_ZAla-Bc5ocGBPtpTqAOOUy38I/exec"; 
+
+            if (apiUrl.includes("URL_WEB_APP_CUA_BAN")) {
+                statusText.textContent = "Chưa cấu hình API Link!";
+                placeholderMsg.innerHTML = "Vui lòng dán link Web App của Google Apps Script vào mã nguồn trang web.";
+                return;
+            }
+
+            try {
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    statusText.textContent = "Không tìm thấy video nào!";
+                    return;
+                }
+
+                // Sắp xếp danh sách tự nhiên (1, 2, 10, a, b, buồn...)
+                videoList = data.sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
+                filteredFiles = [...videoList];
+
+                searchInput.disabled = false;
+                statusText.textContent = `${videoList.length} video từ Google Drive`;
+                placeholderMsg.innerHTML = 'Chọn một từ ở danh sách bên trái để xem video.';
+                renderList();
+
+            } catch (error) {
+                console.error(error);
+                statusText.textContent = "Lỗi kết nối dữ liệu!";
+                placeholderMsg.innerHTML = "Không thể tải danh sách từ Google Drive. Vui lòng kiểm tra lại quyền truy cập Web App.";
+            }
+        }
+
+        // Gọi hàm tải dữ liệu ngay khi mở trang
+        loadVideoData();
+
+        // Tìm kiếm nhanh
+        searchInput.addEventListener('input', (e) => {
+            const keyword = e.target.value.toLowerCase().trim();
+            filteredFiles = videoList.filter(item => 
+                item.name.toLowerCase().includes(keyword)
+            );
+            currentIndex = -1;
+            renderList();
+            statusText.textContent = `Hiển thị ${filteredFiles.length} / ${videoList.length} video`;
+        });
+
+        // Hiển thị danh sách ra giao diện
+        function renderList() {
+            fileGrid.innerHTML = '';
+            filteredFiles.forEach((itemData, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-item' + (index === currentIndex ? ' active' : '');
+                item.title = itemData.name;
+                item.innerHTML = `
+                    <span class="file-icon">🎞️</span>
+                    <span class="file-name">${itemData.name}</span>
+                `;
+                item.addEventListener('click', () => playVideo(index));
+                fileGrid.appendChild(item);
+            });
+        }
+
+        // Phát video
+        function playVideo(index) {
+            if (index < 0 || index >= filteredFiles.length) return;
+            
+            currentIndex = index;
+            const item = filteredFiles[index];
+
+            videoPlayer.src = `https://drive.google.com/uc?export=download&id=${item.id}`;
+            videoPlayer.play();
+
+            placeholderMsg.style.display = 'none';
+            videoWrapper.style.display = 'block';
+            controlsHint.style.display = 'block';
+            currentTitle.textContent = item.name;
+
+            const items = document.querySelectorAll('.file-item');
+            items.forEach((el, idx) => {
+                el.classList.toggle('active', idx === index);
+            });
+        }
+
+        // Phím tắt mũi tên lên/xuống
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement === searchInput || filteredFiles.length === 0) return;
+
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                const nextIndex = (currentIndex + 1) % filteredFiles.length;
+                playVideo(nextIndex);
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const prevIndex = (currentIndex - 1 + filteredFiles.length) % filteredFiles.length;
+                playVideo(prevIndex);
+            }
+        });
+    </script>
+</body>
+</html>
